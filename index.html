@@ -89,6 +89,13 @@ const CONFIG = {
     R: 50000,                // poloměr planety [m]
     g0: 9.81,                // tíhové zrychlení na povrchu [m/s^2]; GM = g0*R^2, g(r) = GM/r^2
   },
+  terrain: {
+    maxH: 2100,              // max výška terénu nad R [m] (vizuální limit)
+    waves: [[2, 450, 0.8], [5, 320, 2.3], [8, 260, 3.3], [11, 200, 1.1], [23, 120, 4.0]],  // [frekvence, amplituda [m], fáze]
+    ridgeFreq: 3, ridgeAmp: 1000, ridgePow: 2,   // hřebenový šum = vrchovatost
+    flatInner: 0.006,        // kolem rampy/cíle terén vyhlazen (vnitřní poloměr) [rad]
+    flatOuter: 0.03,         // vnější poloměr vyhlazení [rad]
+  },
   atmosphere: {
     rho0: 1.225,             // hustota vzduchu u povrchu [kg/m^3]
     H: 3500,                 // škálová výška atmosféry [m]: rho = rho0*exp(-h/H)
@@ -104,8 +111,8 @@ const CONFIG = {
     boosterFuel: 60000,      // palivo 1. stupně [kg] — hlavní ladicí konstanta obtížnosti
     boosterLen: 42,          // délka boosteru [m]
     diameter: 3.7,           // průměr trupu [m]
-    launchThrust: 1330000,   // tah při startu (9 motorů) [N] — s plnou sestavou dává TWR ~1,3
-    landingThrust: 1000000,  // tah při přistání (1 motor, throttle 0–100 %) [N]
+    launchThrust: 1500000,   // tah při startu (9 motorů) [N] — s plnou sestavou dává TWR ~1,45
+    landingThrust: 1100000,  // tah při přistání (1 motor, throttle 0–100 %) [N]
     stage2Dry: 4000,         // suchá hmotnost 2. stupně [kg]
     stage2Fuel: 15000,       // palivo 2. stupně — do oddělení jen mrtvá zátěž [kg]
     stage2Len: 13,           // délka 2. stupně [m]
@@ -168,9 +175,9 @@ const CONFIG = {
   palette: {
     skyLow: '#31435c',       // obloha u povrchu (tmavě modrošedá)
     skyHigh: '#04060c',      // obloha ve vakuu (téměř černá)
-    land: '#5c7350',         // pevnina
-    landDark: '#4a5f43',     // stínovaná pevnina
-    ocean: '#274d73',        // oceán
+    land: '#b0603c',         // pevnina
+    landDark: '#8a4a30',     // stínovaná pevnina
+    ocean: '#4e3f3a',        // oceán
     cloud: 'rgba(230,240,250,0.55)',
     atm: 'rgba(120,180,255,0.16)',
     hull: '#e9edf3',         // bílá raketa
@@ -186,6 +193,24 @@ const CONFIG = {
   },
 };
 
+function smoothstep(e0, e1, x) {
+  const t = clamp((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+function terrainH(a) {
+  const T = CONFIG.terrain;
+  let h = -250;
+  for (const w of T.waves) h += w[1] * Math.sin(w[0] * a + w[2]);
+  h += T.ridgeAmp * Math.pow(1 - Math.abs(Math.sin(T.ridgeFreq * a + 0.5)), T.ridgePow);
+  const pads = [CONFIG.mission.padAngle, CONFIG.mission.padAngle - CONFIG.mission.targetDist / CONFIG.planet.R];
+  for (const p of pads) {
+    const d = angDist(a, p);
+    if (d < T.flatOuter) h *= smoothstep(T.flatInner, T.flatOuter, d);
+  }
+  return h;
+}
+function surfR(a) { return CONFIG.planet.R + terrainH(a); }
+function altAt(x, y) { return Math.hypot(x, y) - surfR(Math.atan2(y, x)); }
 const GM = CONFIG.planet.g0 * CONFIG.planet.R * CONFIG.planet.R;
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
@@ -243,6 +268,7 @@ const game = {
   stars: [],
   lastThrust: 0,
   lastM: 0,
+  lastGimbal: 0,
   lowFuelPulse: 0,
   best: {},
 };
@@ -332,7 +358,7 @@ function integrate(s, ctrl, dt, env) {
   const rx = s.x / r, ry = s.y / r;
   const g = GM / (r * r);
   let Fx = -m * g * rx, Fy = -m * g * ry;
-  const alt = r - CONFIG.planet.R;
+  const alt = r - surfR(Math.atan2(s.y, s.x));
   const rho = alt < CONFIG.atmosphere.top ? CONFIG.atmosphere.rho0 * Math.exp(-Math.max(alt, 0) / CONFIG.atmosphere.H) : 0;
   const speed = Math.hypot(s.vx, s.vy);
   const ax = Math.cos(s.theta), ay = Math.sin(s.theta);
@@ -352,9 +378,11 @@ function integrate(s, ctrl, dt, env) {
     Fx -= D * vhx; Fy -= D * vhy;
   }
   let torque = 0;
+  let gimbal = 0;
   const I = Math.max(m * sc.length * sc.length / 12, 1e5);
   if (thrust > 0) {
     const gim = ctrl.rot * CONFIG.rocket.gimbalMaxDeg * DEG;
+    gimbal = gim;
     const tx = Math.cos(s.theta + gim), ty = Math.sin(s.theta + gim);
     Fx += thrust * tx; Fy += thrust * ty;
     torque += -thrust * Math.sin(gim) * sc.lever;
@@ -371,7 +399,7 @@ function integrate(s, ctrl, dt, env) {
   s.theta = normAng(s.theta + s.omega * dt);
   s.x += s.vx * dt;
   s.y += s.vy * dt;
-  return { thrust, m, r, alt, rho, speed, q, g, I };
+  return { thrust, m, r, alt, rho, speed, q, g, I, gimbal };
 }
 
 function currentCtrl() {
@@ -408,6 +436,7 @@ function stepPhysics(dt) {
   const info = integrate(R, ctrl, dt, env);
   game.lastThrust = info.thrust;
   game.lastM = info.m;
+  game.lastGimbal = info.gimbal;
   game.time += dt;
   if (game.scenario && game.scenario.fuelInfinity) R.fuel = stageCfg().fuelMax;
   if (game.scenarioId === 'hover') {
@@ -446,8 +475,8 @@ function spawnPlume(info, dt) {
       if (game.particles.length >= maxP) game.particles.shift();
       const a = Math.atan2(R.y, R.x) + (Math.random() - 0.5) * 0.01;
       game.particles.push({
-        x: Math.cos(a) * CONFIG.planet.R + (Math.random() - 0.5) * 20,
-        y: Math.sin(a) * CONFIG.planet.R + (Math.random() - 0.5) * 20,
+        x: Math.cos(a) * surfR(a) + (Math.random() - 0.5) * 20,
+        y: Math.sin(a) * surfR(a) + (Math.random() - 0.5) * 20,
         vx: (Math.random() - 0.5) * 14, vy: (Math.random() - 0.5) * 14 + 6,
         life: 1.6 + Math.random() * 1.6, age: 0,
         size: 3 + Math.random() * 7, kind: 'smoke',
@@ -481,8 +510,8 @@ function checkContact(info) {
   const ax = Math.cos(R.theta), ay = Math.sin(R.theta);
   const bx = R.x - ax * half, by = R.y - ay * half;
   const rb = Math.hypot(bx, by) || 1;
-  const altB = rb - CONFIG.planet.R;
   const angB = Math.atan2(by, bx);
+  const altB = rb - surfR(angB);
   const tgt = game.target;
   let onTarget = false;
   if (tgt) {
@@ -513,7 +542,7 @@ function checkContact(info) {
   game.phase = 'touchdown';
   game.touchT = 0;
   R.vx = 0; R.vy = 0; R.omega = 0;
-  const targetR = onTarget ? CONFIG.planet.R + tgt.deckH : CONFIG.planet.R;
+  const targetR = onTarget ? surfR(tgt.angle) + tgt.deckH : surfR(angB);
   const k = (targetR + half) / (rb + half);
   R.x *= k; R.y *= k;
 }
@@ -576,21 +605,22 @@ function trySeparate() {
   toast('ODDĚLENÍ STUPŇŮ — řídíš jen booster');
 }
 
-function predictTrajectory() {
+function predictTrajectory(ctrl) {
   const R = game.rocket;
-  if (!R || game.phase !== 'fly') return [];
-  const ctrl = currentCtrl();
+  if (!R || game.phase !== 'fly') return { pts: [], impact: null };
   const env = { fins: game.fins, legs: game.legs, separated: game.separated };
   const s = { x: R.x, y: R.y, vx: R.vx, vy: R.vy, theta: R.theta, omega: R.omega, fuel: R.fuel, engineLocked: R.engineLocked };
   const pts = [];
   const dt = 1 / 30;
+  let impact = null;
   for (let i = 0; i < 2700; i++) {
     integrate(s, ctrl, dt, env);
     if (i % 3 === 0) pts.push({ x: s.x, y: s.y });
     const r = Math.hypot(s.x, s.y);
-    if (r < CONFIG.planet.R + 1) break;
+    const a = Math.atan2(s.y, s.x);
+    if (r < surfR(a) + 1) { impact = { x: s.x, y: s.y }; pts.push(impact); break; }
   }
-  return pts;
+  return { pts, impact };
 }
 
 function isMobile() {
@@ -650,7 +680,7 @@ function startScenario(id) {
   const padA = CONFIG.mission.padAngle;
   const scCfg = stageCfg();
   const half = scCfg.length / 2;
-  const baseR = CONFIG.planet.R + CONFIG.mission.padHeight + half + (sc.alt || 0);
+  const baseR = surfR(padA) + CONFIG.mission.padHeight + half + (sc.alt || 0);
   const a = padA;
   game.rocket = {
     x: Math.cos(a) * baseR, y: Math.sin(a) * baseR,
@@ -683,7 +713,7 @@ function updateCamera(dt, snap) {
   if (!R) return;
   const c = CONFIG.camera;
   const r = Math.hypot(R.x, R.y);
-  const alt = Math.max(0, r - CONFIG.planet.R);
+  const alt = Math.max(0, altAt(R.x, R.y));
   const speed = Math.hypot(R.vx, R.vy);
   let viewH;
   if (game.mapMode) viewH = c.mapViewH;
@@ -722,7 +752,7 @@ function updateParticles(dt) {
     const g = GM / (r * r);
     s2.vx -= s2.x / r * g * dt; s2.vy -= s2.y / r * g * dt;
     s2.x += s2.vx * dt; s2.y += s2.vy * dt;
-    if (s2.t > 5 || r < CONFIG.planet.R) game.stage2 = null;
+    if (s2.t > 5 || r < surfR(Math.atan2(s2.y, s2.x))) game.stage2 = null;
   }
   if (game.timeScale < 1) game.timeScale = Math.min(1, game.timeScale + dt * 1.4);
 }
@@ -811,58 +841,83 @@ function drawPlanet() {
   const P = CONFIG.palette;
   const s = game.cam.scale;
   const cx = w2sX(0), cy = w2sY(0);
-  const Rp = CONFIG.planet.R * s;
-  if (Rp > 3) {
-    const atmR = (CONFIG.planet.R + CONFIG.atmosphere.top) * s;
-    if (atmR < W * 1.5) {
-      const g = ctx.createRadialGradient(cx, cy, Rp * 0.98, cx, cy, atmR);
-      g.addColorStop(0, 'rgba(130,190,255,0.28)');
+  const maxR = (CONFIG.planet.R + CONFIG.terrain.maxH) * s;
+  if (cx + maxR < -60 || cx - maxR > W + 60 || cy + maxR < -60 || cy - maxR > H + 60) return;
+  if (maxR > 3) {
+    const atmR = (CONFIG.planet.R + CONFIG.terrain.maxH + CONFIG.atmosphere.top) * s;
+    if (atmR < Math.max(W, H) * 1.6) {
+      const g = ctx.createRadialGradient(cx, cy, maxR * 0.98, cx, cy, atmR);
+      g.addColorStop(0, 'rgba(255,170,120,0.22)');
       g.addColorStop(0.35, P.atm);
       g.addColorStop(1, 'rgba(120,180,255,0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(cx, cy, atmR, 0, TAU); ctx.fill();
     }
-    ctx.beginPath(); ctx.arc(cx, cy, Rp, 0, TAU);
+    const N = 220;
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = i / N * TAU;
+      const rr = surfR(a) * s;
+      const x = cx + Math.cos(a) * rr, y = cy - Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
     ctx.fillStyle = P.land; ctx.fill();
     ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, Rp, 0, TAU); ctx.clip();
-    const oceanA = CONFIG.mission.padAngle - 0.55, oceanB = CONFIG.mission.padAngle + 0.5;
+    ctx.clip();
+    ctx.fillStyle = P.ocean;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, Rp * 1.002, oceanA, oceanB);
-    ctx.closePath();
-    ctx.fillStyle = P.ocean; ctx.fill();
+    ctx.arc(cx, cy, maxR * 1.05, CONFIG.mission.padAngle - 0.55, CONFIG.mission.padAngle + 0.5);
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = P.landDark;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, Rp * 1.002, CONFIG.mission.padAngle + 0.55, CONFIG.mission.padAngle + 1.4);
+    ctx.arc(cx, cy, maxR * 1.05, CONFIG.mission.padAngle + 0.55, CONFIG.mission.padAngle + 1.4);
     ctx.closePath(); ctx.fill();
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, Rp * 1.002, CONFIG.mission.padAngle - 1.6, CONFIG.mission.padAngle - 0.9);
+    ctx.arc(cx, cy, maxR * 1.05, CONFIG.mission.padAngle - 1.6, CONFIG.mission.padAngle - 0.9);
     ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(60,30,20,0.35)';
+    for (let i = 0; i < 12; i++) {
+      const ca = i / 12 * TAU + 0.4;
+      const rr = surfR(ca) * s;
+      const px = cx + Math.cos(ca) * rr, py = cy - Math.sin(ca) * rr;
+      const cw = (30 + (i * 37) % 90) * s;
+      if (cw > 1.5 && px > -cw && px < W + cw && py > -cw && py < H + cw) {
+        ctx.beginPath(); ctx.ellipse(px, py, cw, cw * 0.35, 0, 0, TAU); ctx.fill();
+      }
+    }
     ctx.fillStyle = P.cloud;
     for (let i = 0; i < 7; i++) {
       const ca = CONFIG.mission.padAngle - 1.2 + i * 0.38 + Math.sin(game.time * 0.02 + i) * 0.02;
-      const cr = CONFIG.planet.R + 900 + (i % 3) * 700;
+      const cr = surfR(ca) + 900 + (i % 3) * 700;
       const px = w2sX(Math.cos(ca) * cr), py = w2sY(Math.sin(ca) * cr);
       const cw = (60 + (i % 4) * 45) * s * 8;
       if (cw > 2 && px > -cw && px < W + cw && py > -40 && py < H + 40) {
         ctx.beginPath();
-        ctx.ellipse(px, py, cw, cw * 0.32, 0, 0, TAU);
+        ctx.ellipse(px, py, cw, cw * 0.3, 0, 0, TAU);
         ctx.fill();
       }
     }
     ctx.restore();
-    ctx.beginPath(); ctx.arc(cx, cy, Rp, 0, TAU);
-    ctx.strokeStyle = 'rgba(200,225,255,0.25)';
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = i / N * TAU;
+      const rr = surfR(a) * s;
+      const x = cx + Math.cos(a) * rr, y = cy - Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(255,210,170,0.35)';
     ctx.lineWidth = Math.max(1, 2 * s);
     ctx.stroke();
   }
 }
 
 function surfacePoint(angle, h) {
-  const r = CONFIG.planet.R + h;
+  const r = surfR(angle) + h;
   return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
 }
 
@@ -922,26 +977,47 @@ function drawPadAndTarget() {
   }
 }
 
-let predCache = [], predFrame = 0;
+let predCache = null, predFrame = 0;
 function getPrediction() {
   predFrame++;
-  if (predFrame % 5 === 0 || predCache.length === 0) predCache = predictTrajectory();
+  if (predFrame % 5 === 0 || !predCache) {
+    const cur = currentCtrl();
+    predCache = {
+      withInput: predictTrajectory({ throttle: cur.throttle, rot: cur.rot }),
+      ballistic: predictTrajectory({ throttle: 0, rot: 0 }),
+    };
+  }
   return predCache;
 }
+function drawPredPath(pts, color, dash) {
+  if (!pts || pts.length < 2) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const x = w2sX(pts[i].x), y = w2sY(pts[i].y);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
 function drawTrajectory() {
-  if (game.mapMode || game.cam.viewH < 3000) {
-    const pts = getPrediction();
-    if (pts.length < 2) return;
-    ctx.strokeStyle = 'rgba(140,220,255,0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 6]);
+  if (!game.mapMode && game.cam.viewH >= 3000) return;
+  const p = getPrediction();
+  drawPredPath(p.ballistic.pts, 'rgba(255,170,90,0.5)', [2, 6]);
+  drawPredPath(p.withInput.pts, 'rgba(140,220,255,0.65)', [6, 6]);
+  const imp = p.ballistic.impact || p.withInput.impact;
+  if (imp) {
+    const x = w2sX(imp.x), y = w2sY(imp.y);
+    const r = 7;
+    ctx.strokeStyle = 'rgba(255,120,80,0.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.beginPath();
-    for (let i = 0; i < pts.length; i++) {
-      const x = w2sX(pts[i].x), y = w2sY(pts[i].y);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
+    ctx.moveTo(x - r - 5, y); ctx.lineTo(x + r + 5, y);
+    ctx.moveTo(x, y - r - 5); ctx.lineTo(x, y + r + 5);
     ctx.stroke();
-    ctx.setLineDash([]);
   }
 }
 
@@ -1004,22 +1080,37 @@ function drawRocket() {
     ctx.closePath();
     ctx.fillStyle = P.hullShade; ctx.fill(); ctx.stroke();
   }
+  const gim = game.lastGimbal || 0;
   const engN = 3;
-  ctx.fillStyle = P.dark;
   for (let i = 0; i < engN; i++) {
     const ey = (i - 1) * d * 0.42;
+    ctx.save();
+    ctx.translate(-L / 2 + 1.2 * s, ey);
+    ctx.rotate(gim);
+    ctx.fillStyle = P.dark;
     ctx.beginPath();
-    ctx.arc(-L / 2 + 1.2 * s, ey, d * 0.16, 0, TAU);
-    ctx.fill();
+    ctx.moveTo(-1.2 * s, -d * 0.15);
+    ctx.lineTo(-3.4 * s, -d * 0.23);
+    ctx.lineTo(-3.4 * s, d * 0.23);
+    ctx.lineTo(-1.2 * s, d * 0.15);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
   if (game.fins) {
+    const fx = L / 2 - 7 * s;
+    const fh = 7 * s, fw = 4.5 * s;
     ctx.fillStyle = P.fin;
-    const fw = 7 * s, fh = 5 * s;
-    ctx.fillRect(L / 2 - 8 * s, -d / 2 - fh * 0.7, fw, fh * 0.35);
-    ctx.fillRect(L / 2 - 8 * s, d / 2 + fh * 0.35, fw, fh * 0.35);
-    ctx.strokeStyle = P.hullShade;
-    ctx.lineWidth = Math.max(1, s);
-    ctx.strokeRect(L / 2 - 8 * s, -d / 2 - fh, fw, fh * 2);
+    ctx.strokeStyle = P.hull;
+    ctx.lineWidth = Math.max(0.7, 0.8 * s);
+    for (const side of [-1, 1]) {
+      const y0 = side * d / 2 + (side < 0 ? -fh : 0);
+      ctx.fillRect(fx, y0, fw, fh);
+      ctx.strokeRect(fx, y0, fw, fh);
+      ctx.beginPath();
+      ctx.moveTo(fx + fw / 3, y0); ctx.lineTo(fx + fw / 3, y0 + fh);
+      ctx.moveTo(fx + 2 * fw / 3, y0); ctx.lineTo(fx + 2 * fw / 3, y0 + fh);
+      ctx.stroke();
+    }
   }
   if (game.legs) {
     ctx.strokeStyle = P.dark;
@@ -1034,18 +1125,23 @@ function drawRocket() {
   }
   if (game.lastThrust > 0 && game.phase === 'fly') {
     const frac = game.lastThrust / sc.thrustMax;
-    const fl = (12 + 34 * frac) * s;
-    const fw2 = d * (0.9 + 0.5 * frac);
-    const grad = ctx.createLinearGradient(-L / 2, 0, -L / 2 - fl, 0);
+    const flick = 1 + 0.18 * Math.sin(game.time * 43) + 0.12 * Math.sin(game.time * 91 + 1.7) + (Math.random() - 0.5) * 0.12;
+    const fl = (7 + 9 * frac) * s * flick;
+    const fw2 = d * (0.75 + 0.3 * frac);
+    ctx.save();
+    ctx.translate(-L / 2 - 3 * s, 0);
+    ctx.rotate(gim);
+    const grad = ctx.createLinearGradient(0, 0, -fl, 0);
     grad.addColorStop(0, P.flameCore);
-    grad.addColorStop(0.4, P.flame);
+    grad.addColorStop(0.35, P.flame);
     grad.addColorStop(1, 'rgba(255,110,40,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(-L / 2, -fw2 / 2);
-    ctx.lineTo(-L / 2 - fl, 0);
-    ctx.lineTo(-L / 2, fw2 / 2);
+    ctx.moveTo(0, -fw2 / 2);
+    ctx.lineTo(-fl, 0);
+    ctx.lineTo(0, fw2 / 2);
     ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1087,7 +1183,7 @@ function drawHUD() {
   if (!R) return;
   const P = CONFIG.palette;
   const r = Math.hypot(R.x, R.y);
-  const alt = Math.max(0, r - CONFIG.planet.R);
+  const alt = Math.max(0, altAt(R.x, R.y));
   const speed = Math.hypot(R.vx, R.vy);
   const rhatx = R.x / r, rhaty = R.y / r;
   const vr = R.vx * rhatx + R.vy * rhaty;
