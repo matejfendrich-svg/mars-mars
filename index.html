@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Falcon 9 — Landing Simulator</title>
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#04060c;position:fixed;inset:0;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;font-family:ui-monospace,Menlo,Consolas,"Courier New",monospace}
+#cv{display:block;width:100vw;height:100vh;touch-action:none}
+.overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(3,7,14,.86);color:#cfe3f5;z-index:20;text-align:center;padding:20px;box-sizing:border-box;overflow:auto}
+.hidden{display:none!important}
+h1{font-size:clamp(24px,6vw,42px);letter-spacing:.18em;margin:0 0 4px;color:#eaf3fc;font-weight:700;text-shadow:0 0 22px rgba(110,170,255,.4)}
+.sub{color:#7fa3c4;font-size:12px;margin:0 0 20px;max-width:540px;line-height:1.55}
+.scBtn{display:block;width:min(440px,88vw);margin:8px 0;padding:12px 16px;text-align:left;font-family:inherit;background:rgba(28,48,78,.55);color:#dff0ff;border:1px solid rgba(110,160,220,.35);border-radius:10px;cursor:pointer;min-height:44px}
+.scBtn:hover{background:rgba(50,80,120,.65)}
+.scBtn b{display:block;font-size:15px;letter-spacing:.08em;margin-bottom:3px}
+.scBtn span{font-size:11px;color:#9db8d2;line-height:1.45;display:block}
+.scBtn i{float:right;font-style:normal;color:#ffd76e;font-size:12px}
+.hint{margin-top:18px;font-size:10px;color:#5f7d99;line-height:1.7;max-width:520px}
+#resGrade{font-size:clamp(48px,14vw,84px);color:#ffd76e;margin:0 0 4px;text-shadow:0 0 24px rgba(255,200,80,.5)}
+#resTitle{font-size:15px;letter-spacing:.1em;margin-bottom:14px;color:#eaf3fc}
+#resRows{font-size:12px;line-height:1.9;color:#a9c6de;margin-bottom:18px;text-align:left}
+#resRows b{color:#eaf3fc;float:right;margin-left:24px}
+.menuBtn{font-family:inherit;min-width:150px;min-height:44px;margin:6px;padding:10px 18px;font-size:13px;letter-spacing:.1em;background:rgba(60,110,170,.5);color:#eaf3fc;border:1px solid rgba(140,190,240,.5);border-radius:10px;cursor:pointer}
+#touch{position:fixed;inset:0;pointer-events:none;z-index:10}
+#touch>*{pointer-events:auto}
+#thrWrap{position:absolute;left:14px;bottom:20px;width:64px;height:36vh;min-height:170px;background:rgba(18,32,56,.5);border:1px solid rgba(120,170,230,.45);border-radius:12px}
+#thrFill{position:absolute;left:0;bottom:0;width:100%;background:linear-gradient(0deg,rgba(90,200,255,.6),rgba(90,200,255,.2));border-radius:0 0 11px 11px;pointer-events:none}
+#thrKnob{position:absolute;left:-7px;width:78px;height:24px;background:rgba(170,215,255,.9);border-radius:8px;transform:translateY(50%);pointer-events:none;box-shadow:0 0 8px rgba(120,190,255,.6)}
+#thrLbl{position:absolute;left:0;top:-18px;width:64px;text-align:center;font-size:10px;color:#9fc3e2;letter-spacing:.1em}
+#cutBtn{position:absolute;left:92px;bottom:20px;width:54px;height:54px;border-radius:50%;background:rgba(190,60,60,.5);border:1px solid rgba(255,130,130,.65);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center}
+#cutBtn.on{background:rgba(230,80,80,.75)}
+.rotBtn{position:absolute;bottom:20px;width:78px;height:78px;border-radius:50%;background:rgba(28,52,88,.55);border:1px solid rgba(130,180,240,.5);color:#dff0ff;font-size:28px;display:flex;align-items:center;justify-content:center;touch-action:none}
+.rotBtn.on{background:rgba(90,160,240,.55)}
+#rotL{right:110px}
+#rotR{right:20px}
+#topBtns{position:absolute;top:calc(10px + env(safe-area-inset-top));right:10px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:70vw}
+.tb{min-width:44px;height:44px;padding:0 10px;border-radius:10px;background:rgba(24,44,74,.6);border:1px solid rgba(120,170,230,.4);color:#cfe3f5;font-size:10px;letter-spacing:.05em;display:flex;align-items:center;justify-content:center;font-family:inherit}
+.tb.on{background:rgba(80,180,255,.5);border-color:#a5d6ff;color:#fff}
+.tb.warn{background:rgba(220,140,40,.55);border-color:#ffcf8a}
+#toast{position:fixed;top:16%;left:50%;transform:translateX(-50%);background:rgba(8,18,32,.85);color:#ffd9a0;padding:8px 16px;border-radius:8px;font-size:12px;z-index:30;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90vw}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="menu" class="overlay">
+  <h1>FALCON 9<br>LANDING SIM</h1>
+  <p class="sub">2D newtonovský simulátor startu a přistání boosteru na malé planetě. Palivo je omezené — plný tah po celou dobu mise znamená pád.</p>
+  <button class="scBtn" data-sc="mission"><i id="best-mission"></i><b>1 · CELÁ MISE</b><span>Start z rampy, oddělení stupňů, flip, boostback, entry burn, přistání na drone ship 15 km daleko. Bez autopilotu.</span></button>
+  <button class="scBtn" data-sc="landing"><i id="best-landing"></i><b>2 · CVIČNÉ PŘISTÁNÍ</b><span>Start 8 km nad plošinou, 30 % paliva. Nácvik entry burnu a suicide burnu.</span></button>
+  <button class="scBtn" data-sc="hover"><i id="best-hover"></i><b>3 · HOVER TEST</b><span>Neomezené palivo, nízký start. Udrž raketu ~30 s v kmitu a bezpečně dosedni.</span></button>
+  <p class="hint">DESKTOP: W/S tah · A/D rotace · X cutoff · Z plný tah · G klapky · L nožičky · MEZERNÍK oddělení · M mapa · P pauza · R restart<br>MOBIL: levý slider = tah, pravá tlačítka = rotace, horní lišta = klapky/nožičky/oddělení/mapa, špetka = zoom</p>
+</div>
+
+<div id="result" class="overlay hidden">
+  <div id="resGrade">S</div>
+  <div id="resTitle">ÚSPĚCH</div>
+  <div id="resRows"></div>
+  <div>
+    <button class="menuBtn" id="btnRetry">↻ ZNOVU (R)</button>
+    <button class="menuBtn" id="btnMenu">MENU</button>
+  </div>
+</div>
+
+<div id="touch" class="hidden">
+  <div id="topBtns">
+    <button class="tb" id="tbFins">KLAPKY</button>
+    <button class="tb" id="tbLegs">NOŽKY</button>
+    <button class="tb" id="tbSep">ODDĚLIT</button>
+    <button class="tb" id="tbMap">MAPA</button>
+    <button class="tb" id="tbPause">❚❚</button>
+  </div>
+  <div id="thrWrap"><div id="thrLbl">TAH</div><div id="thrFill"></div><div id="thrKnob"></div></div>
+  <div id="cutBtn">✕</div>
+  <div class="rotBtn" id="rotL">⟲</div>
+  <div class="rotBtn" id="rotR">⟲</div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+const CONFIG = {
+  planet: {
+    R: 50000,                // poloměr planety [m]
+    g0: 9.81,                // tíhové zrychlení na povrchu [m/s^2]; GM = g0*R^2, g(r) = GM/r^2
+  },
+  terrain: {
+    maxH: 2100,              // max výška terénu nad R [m] (vizuální limit)
+    waves: [[2, 450, 0.8], [5, 320, 2.3], [8, 260, 3.3], [11, 200, 1.1], [23, 120, 4.0]],  // [frekvence, amplituda [m], fáze]
+    ridgeFreq: 3, ridgeAmp: 1000, ridgePow: 2,   // hřebenový šum = vrchovatost
+    flatInner: 0.006,        // kolem rampy/cíle terén vyhlazen (vnitřní poloměr) [rad]
+    flatOuter: 0.03,         // vnější poloměr vyhlazení [rad]
+  },
+  atmosphere: {
+    rho0: 1.225,             // hustota vzduchu u povrchu [kg/m^3]
+    H: 3500,                 // škálová výška atmosféry [m]: rho = rho0*exp(-h/H)
+    top: 12000,              // nad touto výškou je rho = 0 [m]
+  },
+  physics: {
+    dt: 1 / 120,             // fixní krok fyziky [s] (akumulátor v hlavní smyčce)
+    g0: 9.81,                // g0 pro výpočet spotřeby paliva: dm/dt = thrust/(Isp*g0)
+    maxSubSteps: 24,         // max kroků fyziky za jeden snímek
+  },
+  rocket: {
+    boosterDry: 25000,       // suchá hmotnost 1. stupně (booster) [kg]
+    boosterFuel: 60000,      // palivo 1. stupně [kg] — hlavní ladicí konstanta obtížnosti
+    boosterLen: 42,          // délka boosteru [m]
+    diameter: 3.7,           // průměr trupu [m]
+    launchThrust: 1500000,   // tah při startu (9 motorů) [N] — s plnou sestavou dává TWR ~1,45
+    landingThrust: 1100000,  // tah při přistání (1 motor, throttle 0–100 %) [N]
+    stage2Dry: 4000,         // suchá hmotnost 2. stupně [kg]
+    stage2Fuel: 15000,       // palivo 2. stupně — do oddělení jen mrtvá zátěž [kg]
+    stage2Len: 13,           // délka 2. stupně [m]
+    isp: 290,                // měrný impuls motorů [s]
+    gimbalMaxDeg: 5,         // max vychýlení vektoru tahu gimbalem [°]
+    leverArm: 18,            // rameno od těžiště k motorům [m]
+    rcsTorque: 2500000,      // řídicí moment RCS trysek [N*m] — řídí ve vakuu
+    areaFront: 10.8,         // čelní plocha [m^2]
+    cdFront: 0.5,            // Cd při letu "čumákem"
+    cdSide: 1.2,             // Cd při letu "bokem"
+  },
+  fins: {
+    restore: 600,            // pasivní stabilita klapek: moment = restore*q*sin(alfa)
+    control: 400,            // řídicí moment klapek: control*q*vstup rotace
+    damp: 60,                // tlumení rotace klapkami: damp*q*omega
+    dragMult: 1.15,          // násobek aerodynamického odporu při vyklopených klapkách
+  },
+  legs: {
+    dragMult: 1.25,          // násobek odporu při vyklopených nožičkách
+  },
+  mission: {
+    padAngle: Math.PI / 2,   // úhlová pozice startovací rampy na planetě [rad]
+    padHeight: 4,            // výška rampy nad povrchem [m]
+    targetDist: 15000,       // vzdálenost cíle (drone ship) po povrchu [m]
+    shipWidth: 90,           // šířka přistávací plošiny [m]
+    deckH: 3,                // výška paluby nad povrchem [m]
+    sepMinAlt: 12000,        // min. výška pro oddělení stupňů [m]
+    sepMinSpeed: 200,        // min. rychlost pro oddělení [m/s]
+    sepImpulse: 4,           // impuls boosteru dozadu při oddělení [m/s]
+  },
+  scenarios: {
+    mission: { fuelFrac: 1.0, separated: false, alt: 0,    speed: 0,  fins: false },
+    landing: { fuelFrac: 0.3, separated: true,  alt: 8000, speed: 30, fins: true  },
+    hover:   { fuelFrac: 1.0, separated: true,  alt: 200,  speed: 0,  fins: false, fuelInfinity: true, holdTime: 30 },
+  },
+  landingEval: {
+    maxVertSpeed: 6,         // max |svislá rychlost| pro úspěch [m/s]
+    maxTiltDeg: 10,          // max náklon od svislice pro úspěch [°]
+    crashSpeed: 15,          // celková rychlost nárazu → výbuch [m/s]
+    crashVert: 9,            // |svislá rychlost| nárazu → tvrdý dopad [m/s]
+    crashTiltDeg: 25,        // náklon nárazu → převrhnutí [°]
+    engineCutoffS: 2,        // motor musí být vypnutý do této doby po dosednutí [s]
+    freezeS: 2.4,            // kdy po dosednutí přejde hra na výsledkovku [s]
+  },
+  camera: {
+    baseViewH: 260,          // výška výřezu u země [m]
+    altZoom: 0.9,            // přírůstek výšky výřezu s výškou [m výřezu / m výšky]
+    speedZoom: 0.6,          // přírůstek výšky výřezu s rychlostí
+    maxViewH: 120000,        // max výška výřezu [m]
+    mapViewH: 160000,        // výška výřezu v mapovém režimu [m]
+    zoomLerp: 3.0,           // plynulost změny zoomu [1/s]
+    posLerp: 6.0,            // plynulost sledování rakety [1/s]
+  },
+  particles: {
+    maxDesktop: 400,         // max částic na desktopu
+    maxMobile: 140,          // max částic na mobilu (maxTouchPoints > 0 nebo úzká obrazovka)
+    plumeRate: 240,          // částice/s při plném tahu
+    smokeRate: 30,           // kouř ze země při startu, částice/s
+  },
+  palette: {
+    skyLow: '#31435c',       // obloha u povrchu (tmavě modrošedá)
+    skyHigh: '#04060c',      // obloha ve vakuu (téměř černá)
+    land: '#b0603c',         // pevnina
+    landDark: '#8a4a30',     // stínovaná pevnina
+    ocean: '#4e3f3a',        // oceán
+    cloud: 'rgba(230,240,250,0.55)',
+    atm: 'rgba(120,180,255,0.16)',
+    hull: '#e9edf3',         // bílá raketa
+    hullShade: '#c3cad6',
+    dark: '#23272e',         // černé pruhy, motory
+    fin: '#2e3540',
+    flame: '#ffb347',
+    flameCore: '#fff3c4',
+    hud: '#bfe0ff',
+    hudDim: '#6f92b4',
+    warn: '#ff9d5c',
+    good: '#8fe388',
+  },
+};
+
+function smoothstep(e0, e1, x) {
+  const t = clamp((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+function terrainH(a) {
+  const T = CONFIG.terrain;
+  let h = -250;
+  for (const w of T.waves) h += w[1] * Math.sin(w[0] * a + w[2]);
+  h += T.ridgeAmp * Math.pow(1 - Math.abs(Math.sin(T.ridgeFreq * a + 0.5)), T.ridgePow);
+  const pads = [CONFIG.mission.padAngle, CONFIG.mission.padAngle - CONFIG.mission.targetDist / CONFIG.planet.R];
+  for (const p of pads) {
+    const d = angDist(a, p);
+    if (d < T.flatOuter) h *= smoothstep(T.flatInner, T.flatOuter, d);
+  }
+  return h;
+}
+function surfR(a) { return CONFIG.planet.R + terrainH(a); }
+function altAt(x, y) { return Math.hypot(x, y) - surfR(Math.atan2(y, x)); }
+const GM = CONFIG.planet.g0 * CONFIG.planet.R * CONFIG.planet.R;
+const TAU = Math.PI * 2;
+const DEG = Math.PI / 180;
+
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function normAng(a) { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; }
+function angDist(a, b) { return Math.abs(normAng(a - b)); }
+
+const STAGE_FULL = {
+  dry: CONFIG.rocket.boosterDry,
+  fuelMax: CONFIG.rocket.boosterFuel,
+  length: CONFIG.rocket.boosterLen + CONFIG.rocket.stage2Len,
+  thrustMax: CONFIG.rocket.launchThrust,
+  areaSide: (CONFIG.rocket.boosterLen + CONFIG.rocket.stage2Len) * CONFIG.rocket.diameter,
+  lever: CONFIG.rocket.leverArm,
+  extraMass: CONFIG.rocket.stage2Dry + CONFIG.rocket.stage2Fuel,
+};
+const STAGE_BOOSTER = {
+  dry: CONFIG.rocket.boosterDry,
+  fuelMax: CONFIG.rocket.boosterFuel,
+  length: CONFIG.rocket.boosterLen,
+  thrustMax: CONFIG.rocket.landingThrust,
+  areaSide: CONFIG.rocket.boosterLen * CONFIG.rocket.diameter,
+  lever: CONFIG.rocket.leverArm,
+  extraMass: 0,
+};
+
+const input = { throttle: 0, rot: 0, keys: {} };
+const touch = { thrActive: false, rotL: false, rotR: false, pinchD: 0 };
+
+const game = {
+  mode: 'menu',
+  scenarioId: null,
+  scenario: null,
+  rocket: null,
+  stage2: null,
+  separated: false,
+  fins: false,
+  legs: false,
+  mapMode: false,
+  manualZoom: 1,
+  paused: false,
+  time: 0,
+  timeScale: 1,
+  phase: 'fly',
+  touchT: 0,
+  crashT: 0,
+  touchdown: null,
+  result: null,
+  hoverHold: 0,
+  cam: { x: 0, y: 0, scale: 0.01, viewH: 1000 },
+  target: null,
+  particles: [],
+  stars: [],
+  lastThrust: 0,
+  lastM: 0,
+  lastGimbal: 0,
+  lowFuelPulse: 0,
+  best: {},
+};
+
+const audio = { ctx: null, master: null, engineGain: null, engineFilter: null, unlocked: false };
+
+function unlockAudio() {
+  if (audio.unlocked) return;
+  audio.unlocked = true;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audio.ctx = new AC();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.5;
+    audio.master.connect(audio.ctx.destination);
+    const len = audio.ctx.sampleRate;
+    const buf = audio.ctx.createBuffer(1, len, audio.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = audio.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    audio.engineFilter = audio.ctx.createBiquadFilter();
+    audio.engineFilter.type = 'lowpass';
+    audio.engineFilter.frequency.value = 240;
+    audio.engineGain = audio.ctx.createGain();
+    audio.engineGain.gain.value = 0;
+    src.connect(audio.engineFilter); audio.engineFilter.connect(audio.engineGain); audio.engineGain.connect(audio.master);
+    src.start();
+    const osc = audio.ctx.createOscillator();
+    osc.type = 'sawtooth'; osc.frequency.value = 48;
+    const og = audio.ctx.createGain(); og.gain.value = 0;
+    osc.connect(og); og.connect(audio.master); osc.start();
+    audio.engineOscGain = og; audio.engineOsc = osc;
+  } catch (e) { audio.ctx = null; }
+}
+
+function updateAudio(throttleFrac) {
+  if (!audio.ctx) return;
+  const t = audio.ctx.currentTime;
+  const g = clamp(throttleFrac, 0, 1) * 0.55;
+  audio.engineGain.gain.setTargetAtTime(g, t, 0.08);
+  audio.engineFilter.frequency.setTargetAtTime(180 + 900 * throttleFrac, t, 0.1);
+  if (audio.engineOscGain) {
+    audio.engineOscGain.gain.setTargetAtTime(g * 0.35, t, 0.08);
+    audio.engineOsc.frequency.setTargetAtTime(40 + 40 * throttleFrac, t, 0.1);
+  }
+}
+
+function playExplosion() {
+  if (!audio.ctx) return;
+  const t = audio.ctx.currentTime;
+  const len = audio.ctx.sampleRate * 0.9;
+  const buf = audio.ctx.createBuffer(1, len, audio.ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+  const src = audio.ctx.createBufferSource(); src.buffer = buf;
+  const f = audio.ctx.createBiquadFilter(); f.type = 'lowpass';
+  f.frequency.setValueAtTime(1200, t); f.frequency.exponentialRampToValueAtTime(60, t + 0.85);
+  const g = audio.ctx.createGain();
+  g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+  src.connect(f); f.connect(g); g.connect(audio.master); src.start();
+}
+
+function playClick() {
+  if (!audio.ctx) return;
+  const t = audio.ctx.currentTime;
+  const o = audio.ctx.createOscillator(); o.type = 'square'; o.frequency.value = 840;
+  const g = audio.ctx.createGain();
+  g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  o.connect(g); g.connect(audio.master); o.start(t); o.stop(t + 0.07);
+}
+
+function stageCfg() { return game.separated ? STAGE_BOOSTER : STAGE_FULL; }
+
+function integrate(s, ctrl, dt, env) {
+  const sc = env.separated ? STAGE_BOOSTER : STAGE_FULL;
+  let thrust = ctrl.throttle * sc.thrustMax;
+  if (s.fuel <= 0) { s.fuel = 0; thrust = 0; s.engineLocked = true; }
+  if (thrust > 0) {
+    const dm = thrust / (CONFIG.rocket.isp * CONFIG.physics.g0) * dt;
+    if (dm >= s.fuel) { s.fuel = 0; thrust = 0; s.engineLocked = true; }
+    else s.fuel -= dm;
+  }
+  const m = sc.dry + sc.extraMass + s.fuel;
+  const r = Math.hypot(s.x, s.y) || 1;
+  const rx = s.x / r, ry = s.y / r;
+  const g = GM / (r * r);
+  let Fx = -m * g * rx, Fy = -m * g * ry;
+  const alt = r - surfR(Math.atan2(s.y, s.x));
+  const rho = alt < CONFIG.atmosphere.top ? CONFIG.atmosphere.rho0 * Math.exp(-Math.max(alt, 0) / CONFIG.atmosphere.H) : 0;
+  const speed = Math.hypot(s.vx, s.vy);
+  const ax = Math.cos(s.theta), ay = Math.sin(s.theta);
+  let q = 0, sinA = 0, cosA = 1;
+  if (speed > 0.5 && rho > 0) {
+    const vhx = s.vx / speed, vhy = s.vy / speed;
+    cosA = ax * vhx + ay * vhy;
+    sinA = ax * vhy - ay * vhx;
+    q = 0.5 * rho * speed * speed;
+    const ca = Math.abs(cosA);
+    const area = CONFIG.rocket.areaFront * ca + sc.areaSide * (1 - ca);
+    const cd = CONFIG.rocket.cdFront * ca + CONFIG.rocket.cdSide * (1 - ca);
+    let mult = 1;
+    if (env.fins) mult *= CONFIG.fins.dragMult;
+    if (env.legs) mult *= CONFIG.legs.dragMult;
+    const D = q * cd * area * mult;
+    Fx -= D * vhx; Fy -= D * vhy;
+  }
+  let torque = 0;
+  let gimbal = 0;
+  const I = Math.max(m * sc.length * sc.length / 12, 1e5);
+  if (thrust > 0) {
+    const gim = ctrl.rot * CONFIG.rocket.gimbalMaxDeg * DEG;
+    gimbal = gim;
+    const tx = Math.cos(s.theta + gim), ty = Math.sin(s.theta + gim);
+    Fx += thrust * tx; Fy += thrust * ty;
+    torque += -thrust * Math.sin(gim) * sc.lever;
+  }
+  torque += -ctrl.rot * CONFIG.rocket.rcsTorque;
+  if (env.fins && rho > 0) {
+    torque += -CONFIG.fins.restore * q * sinA;
+    torque += -ctrl.rot * CONFIG.fins.control * q;
+    torque += -CONFIG.fins.damp * q * s.omega;
+  }
+  s.vx += Fx / m * dt;
+  s.vy += Fy / m * dt;
+  s.omega += torque / I * dt;
+  s.theta = normAng(s.theta + s.omega * dt);
+  s.x += s.vx * dt;
+  s.y += s.vy * dt;
+  return { thrust, m, r, alt, rho, speed, q, g, I, gimbal };
+}
+
+function currentCtrl() {
+  let rot = 0;
+  if (input.keys['a'] || input.keys['arrowleft'] || touch.rotL) rot -= 1;
+  if (input.keys['d'] || input.keys['arrowright'] || touch.rotR) rot += 1;
+  return { throttle: clamp(input.throttle, 0, 1), rot: clamp(rot, -1, 1) };
+}
+
+function stepPhysics(dt) {
+  const R = game.rocket;
+  if (!R) return;
+  const env = { fins: game.fins, legs: game.legs, separated: game.separated };
+  if (game.phase === 'touchdown') {
+    game.touchT += dt;
+    const ctrl = currentCtrl();
+    const sc = stageCfg();
+    if (ctrl.throttle > 0 && !R.engineLocked && R.fuel > 0) {
+      const dm = ctrl.throttle * sc.thrustMax / (CONFIG.rocket.isp * CONFIG.physics.g0) * dt;
+      R.fuel = Math.max(0, R.fuel - dm);
+      if (R.fuel <= 0) R.engineLocked = true;
+    }
+    game.time += dt;
+    if (game.touchT >= CONFIG.landingEval.freezeS) finalizeLanding();
+    return;
+  }
+  if (game.phase === 'crashed') {
+    game.crashT += dt;
+    game.time += dt;
+    if (game.crashT > 1.7) finalizeLanding();
+    return;
+  }
+  const ctrl = currentCtrl();
+  const info = integrate(R, ctrl, dt, env);
+  game.lastThrust = info.thrust;
+  game.lastM = info.m;
+  game.lastGimbal = info.gimbal;
+  game.time += dt;
+  if (game.scenario && game.scenario.fuelInfinity) R.fuel = stageCfg().fuelMax;
+  if (game.scenarioId === 'hover') {
+    if (info.alt < 600 && Math.abs(R.vx * (R.x / info.r) + R.vy * (R.y / info.r)) < 5) game.hoverHold += dt;
+  }
+  spawnPlume(info, dt);
+  checkContact(info);
+}
+
+function spawnPlume(info, dt) {
+  if (info.thrust <= 0) return;
+  const R = game.rocket;
+  const sc = stageCfg();
+  const half = sc.length / 2;
+  const ax = Math.cos(R.theta), ay = Math.sin(R.theta);
+  const ex = R.x - ax * half, ey = R.y - ay * half;
+  const maxP = isMobile() ? CONFIG.particles.maxMobile : CONFIG.particles.maxDesktop;
+  const frac = info.thrust / sc.thrustMax;
+  const n = Math.round(CONFIG.particles.plumeRate * frac * dt);
+  for (let i = 0; i < n; i++) {
+    if (game.particles.length >= maxP) game.particles.shift();
+    const spread = 1.2 + Math.random() * 1.5;
+    const sp = 60 + Math.random() * 140 * (0.4 + frac);
+    game.particles.push({
+      x: ex - ax * 2 + (Math.random() - 0.5) * spread,
+      y: ey - ay * 2 + (Math.random() - 0.5) * spread,
+      vx: -ax * sp + (Math.random() - 0.5) * 30 + R.vx * 0.4,
+      vy: -ay * sp + (Math.random() - 0.5) * 30 + R.vy * 0.4,
+      life: 0.35 + Math.random() * 0.45, age: 0,
+      size: 1.5 + Math.random() * 3.5 * (0.5 + frac), kind: 'flame',
+    });
+  }
+  if (info.alt < 60 && info.speed < 120) {
+    const sn = Math.round(CONFIG.particles.smokeRate * frac * dt * 4);
+    for (let i = 0; i < sn; i++) {
+      if (game.particles.length >= maxP) game.particles.shift();
+      const a = Math.atan2(R.y, R.x) + (Math.random() - 0.5) * 0.01;
+      game.particles.push({
+        x: Math.cos(a) * surfR(a) + (Math.random() - 0.5) * 20,
+        y: Math.sin(a) * surfR(a) + (Math.random() - 0.5) * 20,
+        vx: (Math.random() - 0.5) * 14, vy: (Math.random() - 0.5) * 14 + 6,
+        life: 1.6 + Math.random() * 1.6, age: 0,
+        size: 3 + Math.random() * 7, kind: 'smoke',
+      });
+    }
+  }
+}
+
+function explode(x, y) {
+  const maxP = isMobile() ? CONFIG.particles.maxMobile : CONFIG.particles.maxDesktop;
+  const n = Math.min(110, maxP);
+  for (let i = 0; i < n; i++) {
+    if (game.particles.length >= maxP * 2) game.particles.shift();
+    const a = Math.random() * TAU, sp = 30 + Math.random() * 260;
+    game.particles.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: 0.7 + Math.random() * 1.3, age: 0,
+      size: 2 + Math.random() * 6, kind: Math.random() < 0.5 ? 'fire' : 'smoke',
+    });
+  }
+  game.particles.push({ x, y, vx: 0, vy: 0, life: 0.5, age: 0, size: 10, kind: 'ring' });
+  playExplosion();
+  game.timeScale = 0.35;
+}
+
+function checkContact(info) {
+  if (game.phase !== 'fly') return;
+  const R = game.rocket;
+  const sc = stageCfg();
+  const half = sc.length / 2;
+  const ax = Math.cos(R.theta), ay = Math.sin(R.theta);
+  const bx = R.x - ax * half, by = R.y - ay * half;
+  const rb = Math.hypot(bx, by) || 1;
+  const angB = Math.atan2(by, bx);
+  const altB = rb - surfR(angB);
+  const tgt = game.target;
+  let onTarget = false;
+  if (tgt) {
+    const d = angDist(angB, tgt.angle);
+    if (d < tgt.width / 2 / CONFIG.planet.R && altB < tgt.deckH + 0.8) onTarget = true;
+  }
+  if (altB > 0 && !onTarget) return;
+  const rhatx = bx / rb, rhaty = by / rb;
+  const vr = R.vx * rhatx + R.vy * rhaty;
+  const speed = info.speed;
+  const tilt = angDist(R.theta, angB) * 180 / Math.PI;
+  const ev = CONFIG.landingEval;
+  game.touchdown = {
+    vr, speed, tilt, onTarget,
+    distFromCenter: tgt ? angDist(angB, tgt.angle) * CONFIG.planet.R : 0,
+    fuelFrac: R.fuel / sc.fuelMax,
+    time: game.time,
+    hoverHold: game.hoverHold,
+    cutInTime: false,
+  };
+  if (!game.legs || speed > ev.crashSpeed || Math.abs(vr) > ev.crashVert || tilt > ev.crashTiltDeg) {
+    game.phase = 'crashed';
+    game.crashT = 0;
+    game.timeScale = 0.35;
+    explode(bx, by);
+    return;
+  }
+  game.phase = 'touchdown';
+  game.touchT = 0;
+  R.vx = 0; R.vy = 0; R.omega = 0;
+  const targetR = onTarget ? surfR(tgt.angle) + tgt.deckH : surfR(angB);
+  const k = (targetR + half) / (rb + half);
+  R.x *= k; R.y *= k;
+}
+
+function finalizeLanding() {
+  if (game.phase === 'fly' || game.result) return;
+  const td = game.touchdown;
+  const ev = CONFIG.landingEval;
+  let ok = false, partial = false, reason = '';
+  if (game.phase === 'crashed') {
+    if (!game.legs) reason = 'přistání bez vyklopených nožiček';
+    else if (td.speed > ev.crashSpeed) reason = 'příliš vysoká rychlost nárazu';
+    else if (Math.abs(td.vr) > ev.crashVert) reason = 'tvrdé dosednutí';
+    else reason = 'převrhnutí / dopad bokem';
+  } else {
+    const cutOk = input.throttle <= 0.001 || td.cutInTime;
+    if (td.onTarget && Math.abs(td.vr) <= ev.maxVertSpeed && td.tilt <= ev.maxTiltDeg && cutOk) ok = true;
+    else if (td.onTarget && Math.abs(td.vr) <= ev.maxVertSpeed && td.tilt <= ev.maxTiltDeg) { ok = false; reason = 'motor nevypnut do 2 s po dosednutí'; partial = true; }
+    else if (!td.onTarget && Math.abs(td.vr) <= ev.maxVertSpeed && td.tilt <= ev.maxTiltDeg) { partial = true; reason = 'přistál jsi, ale mimo cíl'; }
+    else if (td.tilt > ev.maxTiltDeg) reason = 'převrhnutí při dosednutí';
+    else reason = 'tvrdé dosednutí';
+  }
+  let grade = 'D';
+  if (ok) {
+    const vScore = 1 - clamp(Math.abs(td.vr) / ev.maxVertSpeed, 0, 1) * 0.4;
+    const tScore = 1 - clamp(td.tilt / ev.maxTiltDeg, 0, 1) * 0.25;
+    const dScore = 1 - clamp(td.distFromCenter / (game.target ? game.target.width / 2 : 45), 0, 1) * 0.2;
+    const fScore = clamp(td.fuelFrac * 2, 0, 1) * 0.15;
+    const s = vScore + tScore + dScore + fScore;
+    grade = s > 0.93 ? 'S' : s > 0.8 ? 'A' : s > 0.65 ? 'B' : 'C';
+  } else if (partial) grade = 'C';
+  game.result = {
+    ok, partial, reason, grade,
+    vr: td.vr, speed: td.speed, tilt: td.tilt,
+    dist: td.distFromCenter, fuelFrac: td.fuelFrac,
+    time: td.time, hoverHold: td.hoverHold, onTarget: td.onTarget,
+  };
+  game.mode = 'result';
+  game.timeScale = 1;
+  saveBest();
+  if (typeof showResult === 'function') showResult();
+}
+
+function trySeparate() {
+  if (game.mode !== 'play' || game.separated || game.phase !== 'fly') return;
+  const R = game.rocket;
+  const r = Math.hypot(R.x, R.y);
+  const alt = r - CONFIG.planet.R;
+  const speed = Math.hypot(R.vx, R.vy);
+  if (alt < CONFIG.mission.sepMinAlt || speed < CONFIG.mission.sepMinSpeed) {
+    toast('Oddělení nelze: min. výška ' + (CONFIG.mission.sepMinAlt / 1000) + ' km a rychlost ' + CONFIG.mission.sepMinSpeed + ' m/s');
+    return;
+  }
+  game.separated = true;
+  const tx = -R.y / r, ty = R.x / r;
+  game.stage2 = { x: R.x, y: R.y, vx: R.vx + tx * 45, vy: R.vy + ty * 45, theta: R.theta, t: 0 };
+  R.vx -= tx * CONFIG.mission.sepImpulse;
+  R.vy -= ty * CONFIG.mission.sepImpulse;
+  playClick();
+  toast('ODDĚLENÍ STUPŇŮ — řídíš jen booster');
+}
+
+function predictTrajectory(ctrl) {
+  const R = game.rocket;
+  if (!R || game.phase !== 'fly') return { pts: [], impact: null };
+  const env = { fins: game.fins, legs: game.legs, separated: game.separated };
+  const s = { x: R.x, y: R.y, vx: R.vx, vy: R.vy, theta: R.theta, omega: R.omega, fuel: R.fuel, engineLocked: R.engineLocked };
+  const pts = [];
+  const dt = 1 / 30;
+  let impact = null;
+  for (let i = 0; i < 2700; i++) {
+    integrate(s, ctrl, dt, env);
+    if (i % 3 === 0) pts.push({ x: s.x, y: s.y });
+    const r = Math.hypot(s.x, s.y);
+    const a = Math.atan2(s.y, s.x);
+    if (r < surfR(a) + 1) { impact = { x: s.x, y: s.y }; pts.push(impact); break; }
+  }
+  return { pts, impact };
+}
+
+function isMobile() {
+  return (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) || (typeof window !== 'undefined' && window.innerWidth < 700);
+}
+
+function loadBest() {
+  try {
+    const b = JSON.parse(localStorage.getItem('f9sim_best_v1') || '{}');
+    return b && typeof b === 'object' ? b : {};
+  } catch (e) { return {}; }
+}
+
+function saveBest() {
+  if (!game.scenarioId || !game.result) return;
+  const id = game.scenarioId;
+  const prev = game.best[id];
+  const order = { S: 5, A: 4, B: 3, C: 2, D: 1 };
+  if (!prev || order[game.result.grade] > order[prev.grade]) {
+    game.best[id] = { grade: game.result.grade, ok: game.result.ok, time: game.result.time };
+    try { localStorage.setItem('f9sim_best_v1', JSON.stringify(game.best)); } catch (e) {}
+  }
+}
+
+function toast(msg) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+}
+
+function startScenario(id) {
+  const sc = CONFIG.scenarios[id];
+  game.scenarioId = id;
+  game.scenario = sc;
+  game.mode = 'play';
+  game.paused = false;
+  game.time = 0;
+  game.timeScale = 1;
+  game.phase = 'fly';
+  game.touchT = 0;
+  game.crashT = 0;
+  game.touchdown = null;
+  game.result = null;
+  game.separated = sc.separated;
+  game.fins = sc.fins;
+  game.legs = false;
+  game.mapMode = false;
+  game.manualZoom = 1;
+  game.stage2 = null;
+  game.hoverHold = 0;
+  game.particles.length = 0;
+  input.throttle = 0;
+  const padA = CONFIG.mission.padAngle;
+  const scCfg = stageCfg();
+  const half = scCfg.length / 2;
+  const baseR = surfR(padA) + CONFIG.mission.padHeight + half + (sc.alt || 0);
+  const a = padA;
+  game.rocket = {
+    x: Math.cos(a) * baseR, y: Math.sin(a) * baseR,
+    vx: 0, vy: 0, theta: a, omega: 0,
+    fuel: CONFIG.rocket.boosterFuel * sc.fuelFrac,
+    engineLocked: false,
+  };
+  if (sc.speed) {
+    const r = Math.hypot(game.rocket.x, game.rocket.y);
+    const tx = -game.rocket.y / r, ty = game.rocket.x / r;
+    game.rocket.vx = tx * sc.speed; game.rocket.vy = ty * sc.speed;
+  }
+  if (id === 'mission') {
+    const tgtA = padA - CONFIG.mission.targetDist / CONFIG.planet.R;
+    game.target = { angle: tgtA, width: CONFIG.mission.shipWidth, deckH: CONFIG.mission.deckH, kind: 'ship' };
+  } else {
+    game.target = { angle: padA, width: 40, deckH: 2, kind: 'pad' };
+  }
+  game.cam.x = game.rocket.x; game.cam.y = game.rocket.y;
+  game.cam.viewH = CONFIG.camera.baseViewH;
+  game.cam.scale = 1;
+  updateCamera(1, true);
+  if (typeof hideOverlays === 'function') hideOverlays();
+  if (typeof syncTouchUI === 'function') syncTouchUI();
+  toast({ mission: 'START — W tah, MEZERNÍK oddělení, cíl: drone ship', landing: 'CVIČNÉ PŘISTÁNÍ — sniž pád a dosedni na plošinu', hover: 'HOVER TEST — udrž ~30 s, pak přistaň' }[id] || '');
+}
+
+function updateCamera(dt, snap) {
+  const R = game.rocket;
+  if (!R) return;
+  const c = CONFIG.camera;
+  const r = Math.hypot(R.x, R.y);
+  const alt = Math.max(0, altAt(R.x, R.y));
+  const speed = Math.hypot(R.vx, R.vy);
+  let viewH;
+  if (game.mapMode) viewH = c.mapViewH;
+  else viewH = clamp(c.baseViewH + alt * c.altZoom + speed * c.speedZoom, c.baseViewH, c.maxViewH);
+  const tx = game.mapMode ? 0 : R.x;
+  const ty = game.mapMode ? 0 : R.y;
+  const k = snap ? 1 : 1 - Math.exp(-c.posLerp * dt);
+  game.cam.x = lerp(game.cam.x, tx, k);
+  game.cam.y = lerp(game.cam.y, ty, k);
+  game.cam.viewH = lerp(game.cam.viewH, viewH, snap ? 1 : 1 - Math.exp(-c.zoomLerp * dt));
+  game.cam.scale = (typeof window !== 'undefined' ? window.innerHeight : 800) / game.cam.viewH * game.manualZoom;
+}
+
+function updateParticles(dt) {
+  const ps = game.particles;
+  for (let i = ps.length - 1; i >= 0; i--) {
+    const p = ps[i];
+    p.age += dt;
+    if (p.age >= p.life) { ps.splice(i, 1); continue; }
+    if (p.kind === 'smoke') {
+      const r = Math.hypot(p.x, p.y);
+      const g = GM / (r * r);
+      p.vx -= p.x / r * g * dt * 0.05; p.vy -= p.y / r * g * dt * 0.05;
+      p.size += dt * 6;
+    } else if (p.kind === 'ring') {
+      p.size += dt * 900;
+    } else {
+      p.vx *= 0.985; p.vy *= 0.985;
+    }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+  if (game.stage2) {
+    game.stage2.t += dt;
+    const s2 = game.stage2;
+    const r = Math.hypot(s2.x, s2.y);
+    const g = GM / (r * r);
+    s2.vx -= s2.x / r * g * dt; s2.vy -= s2.y / r * g * dt;
+    s2.x += s2.vx * dt; s2.y += s2.vy * dt;
+    if (s2.t > 5 || r < surfR(Math.atan2(s2.y, s2.x))) game.stage2 = null;
+  }
+  if (game.timeScale < 1) game.timeScale = Math.min(1, game.timeScale + dt * 1.4);
+}
+
+function makeStars() {
+  game.stars.length = 0;
+  for (let i = 0; i < 140; i++) {
+    game.stars.push({ x: Math.random(), y: Math.random(), p: 0.05 + Math.random() * 0.25, s: Math.random() < 0.85 ? 1 : 2 });
+  }
+}
+
+let cv, ctx, W = 0, H = 0, dpr = 1;
+let skyGrad = null, skyBucket = -1;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  skyBucket = -1;
+}
+
+function w2sX(wx) { return (wx - game.cam.x) * game.cam.scale + W / 2; }
+function w2sY(wy) { return H / 2 - (wy - game.cam.y) * game.cam.scale; }
+
+function render() {
+  if (!ctx) return;
+  const P = CONFIG.palette;
+  const R = game.rocket;
+  const camAlt = R ? Math.max(0, Math.hypot(R.x, R.y) - CONFIG.planet.R) : 0;
+  const skyFrac = clamp(camAlt / (CONFIG.atmosphere.top * 2.2), 0, 1);
+  const bucket = Math.round(skyFrac * 24);
+  if (bucket !== skyBucket || !skyGrad) {
+    skyBucket = bucket;
+    const f = bucket / 24;
+    const c1 = mixColor(P.skyLow, P.skyHigh, f);
+    const c2 = mixColor(P.skyLow, P.skyHigh, clamp(f * 1.4 + 0.2, 0, 1));
+    skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+    skyGrad.addColorStop(0, c2);
+    skyGrad.addColorStop(1, c1);
+  }
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H);
+  drawStars();
+  if (R) {
+    drawPlanet();
+    drawTrajectory();
+    drawPadAndTarget();
+    if (game.stage2) drawStage2();
+    drawRocket();
+    drawParticles();
+    drawHUD();
+  }
+  if (game.paused && game.mode === 'play') {
+    ctx.fillStyle = 'rgba(3,8,16,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#dff0ff';
+    ctx.font = '700 28px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUZA — P', W / 2, H / 2);
+  }
+}
+
+function mixColor(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const r = Math.round(lerp((pa >> 16) & 255, (pb >> 16) & 255, t));
+  const g = Math.round(lerp((pa >> 8) & 255, (pb >> 8) & 255, t));
+  const bl = Math.round(lerp(pa & 255, pb & 255, t));
+  return 'rgb(' + r + ',' + g + ',' + bl + ')';
+}
+
+function drawStars() {
+  const f = clamp(Math.hypot(game.cam.x, game.cam.y) / CONFIG.planet.R, 0, 1);
+  if (f < 0.25) return;
+  const alpha = clamp((f - 0.25) / 0.5, 0, 1);
+  ctx.fillStyle = 'rgba(220,235,255,' + (0.75 * alpha).toFixed(3) + ')';
+  for (const s of game.stars) {
+    const sx = (((s.x * W - game.cam.x * game.cam.scale * s.p * 0.15) % W) + W) % W;
+    const sy = (((s.y * H - game.cam.y * game.cam.scale * s.p * 0.15) % H) + H) % H;
+    ctx.fillRect(sx, sy, s.s, s.s);
+  }
+}
+
+function drawPlanet() {
+  const P = CONFIG.palette;
+  const s = game.cam.scale;
+  const cx = w2sX(0), cy = w2sY(0);
+  const maxR = (CONFIG.planet.R + CONFIG.terrain.maxH) * s;
+  if (cx + maxR < -60 || cx - maxR > W + 60 || cy + maxR < -60 || cy - maxR > H + 60) return;
+  if (maxR > 3) {
+    const atmR = (CONFIG.planet.R + CONFIG.terrain.maxH + CONFIG.atmosphere.top) * s;
+    if (atmR < Math.max(W, H) * 1.6) {
+      const g = ctx.createRadialGradient(cx, cy, maxR * 0.98, cx, cy, atmR);
+      g.addColorStop(0, 'rgba(255,170,120,0.22)');
+      g.addColorStop(0.35, P.atm);
+      g.addColorStop(1, 'rgba(120,180,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, atmR, 0, TAU); ctx.fill();
+    }
+    const N = 220;
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = i / N * TAU;
+      const rr = surfR(a) * s;
+      const x = cx + Math.cos(a) * rr, y = cy - Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = P.land; ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = P.ocean;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, maxR * 1.05, CONFIG.mission.padAngle - 0.55, CONFIG.mission.padAngle + 0.5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = P.landDark;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, maxR * 1.05, CONFIG.mission.padAngle + 0.55, CONFIG.mission.padAngle + 1.4);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, maxR * 1.05, CONFIG.mission.padAngle - 1.6, CONFIG.mission.padAngle - 0.9);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(60,30,20,0.35)';
+    for (let i = 0; i < 12; i++) {
+      const ca = i / 12 * TAU + 0.4;
+      const rr = surfR(ca) * s;
+      const px = cx + Math.cos(ca) * rr, py = cy - Math.sin(ca) * rr;
+      const cw = (30 + (i * 37) % 90) * s;
+      if (cw > 1.5 && px > -cw && px < W + cw && py > -cw && py < H + cw) {
+        ctx.beginPath(); ctx.ellipse(px, py, cw, cw * 0.35, 0, 0, TAU); ctx.fill();
+      }
+    }
+    ctx.fillStyle = P.cloud;
+    for (let i = 0; i < 7; i++) {
+      const ca = CONFIG.mission.padAngle - 1.2 + i * 0.38 + Math.sin(game.time * 0.02 + i) * 0.02;
+      const cr = surfR(ca) + 900 + (i % 3) * 700;
+      const px = w2sX(Math.cos(ca) * cr), py = w2sY(Math.sin(ca) * cr);
+      const cw = (60 + (i % 4) * 45) * s * 8;
+      if (cw > 2 && px > -cw && px < W + cw && py > -40 && py < H + 40) {
+        ctx.beginPath();
+        ctx.ellipse(px, py, cw, cw * 0.3, 0, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = i / N * TAU;
+      const rr = surfR(a) * s;
+      const x = cx + Math.cos(a) * rr, y = cy - Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(255,210,170,0.35)';
+    ctx.lineWidth = Math.max(1, 2 * s);
+    ctx.stroke();
+  }
+}
+
+function surfacePoint(angle, h) {
+  const r = surfR(angle) + h;
+  return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+}
+
+function drawPadAndTarget() {
+  const s = game.cam.scale;
+  const P = CONFIG.palette;
+  const padA = CONFIG.mission.padAngle;
+  if (game.scenarioId === 'mission') {
+    const p = surfacePoint(padA, CONFIG.mission.padHeight);
+    const px = w2sX(p.x), py = w2sY(p.y);
+    const ph = 30 * s, pw = 26 * s;
+    if (ph > 0.5) {
+      ctx.fillStyle = P.hullShade;
+      ctx.fillRect(px - pw / 2, py - ph, pw, ph);
+      ctx.fillStyle = P.dark;
+      ctx.fillRect(px - pw / 2 - 4 * s, py - ph - 4 * s, pw + 8 * s, 4 * s);
+      ctx.strokeStyle = 'rgba(160,190,220,0.6)';
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.moveTo(px - pw / 2 - 8 * s, py - ph * 0.7);
+      ctx.lineTo(px - pw / 2, py - ph);
+      ctx.stroke();
+    }
+  }
+  const t = game.target;
+  if (!t) return;
+  const p = surfacePoint(t.angle, t.deckH);
+  const px = w2sX(p.x), py = w2sY(p.y);
+  const w = t.width * s, h = t.deckH * s + 3;
+  if (w > 1) {
+    if (t.kind === 'ship') {
+      ctx.fillStyle = '#39465a';
+      ctx.beginPath();
+      const bow = w * 0.18;
+      ctx.moveTo(px - w / 2, py);
+      ctx.lineTo(px - w / 2 + bow * 0.4, py - h);
+      ctx.lineTo(px + w / 2 - bow * 0.4, py - h);
+      ctx.lineTo(px + w / 2, py);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#22303f';
+      ctx.fillRect(px - w / 2 - 6 * s, py, w + 12 * s, 4 * s);
+    } else {
+      ctx.fillStyle = '#4a5a70';
+      ctx.fillRect(px - w / 2, py - h, w, h);
+    }
+    ctx.strokeStyle = 'rgba(255,220,120,0.9)';
+    ctx.lineWidth = Math.max(1, 1.5 * s);
+    ctx.setLineDash([6 * s + 3, 5 * s + 3]);
+    ctx.strokeRect(px - w / 2, py - h, w, h);
+    ctx.setLineDash([]);
+    if (w > 14) {
+      ctx.fillStyle = 'rgba(255,220,120,0.9)';
+      ctx.font = Math.max(9, 10 * s + 6) + 'px ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(t.kind === 'ship' ? 'DRONE SHIP' : 'LZ', px, py - h - 5);
+    }
+  }
+}
+
+let predCache = null, predFrame = 0;
+function getPrediction() {
+  predFrame++;
+  if (predFrame % 5 === 0 || !predCache) {
+    const cur = currentCtrl();
+    predCache = {
+      withInput: predictTrajectory({ throttle: cur.throttle, rot: cur.rot }),
+      ballistic: predictTrajectory({ throttle: 0, rot: 0 }),
+    };
+  }
+  return predCache;
+}
+function drawPredPath(pts, color, dash) {
+  if (!pts || pts.length < 2) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const x = w2sX(pts[i].x), y = w2sY(pts[i].y);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+function drawTrajectory() {
+  if (!game.mapMode && game.cam.viewH >= 3000) return;
+  const p = getPrediction();
+  drawPredPath(p.ballistic.pts, 'rgba(255,170,90,0.5)', [2, 6]);
+  drawPredPath(p.withInput.pts, 'rgba(140,220,255,0.65)', [6, 6]);
+  const imp = p.ballistic.impact || p.withInput.impact;
+  if (imp) {
+    const x = w2sX(imp.x), y = w2sY(imp.y);
+    const r = 7;
+    ctx.strokeStyle = 'rgba(255,120,80,0.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - r - 5, y); ctx.lineTo(x + r + 5, y);
+    ctx.moveTo(x, y - r - 5); ctx.lineTo(x, y + r + 5);
+    ctx.stroke();
+  }
+}
+
+function drawStage2() {
+  const s2 = game.stage2;
+  const s = game.cam.scale;
+  const x = w2sX(s2.x), y = w2sY(s2.y);
+  const ang = -s2.theta;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(ang);
+  ctx.fillStyle = CONFIG.palette.hull;
+  ctx.fillRect(-CONFIG.rocket.stage2Len * s / 2, -CONFIG.rocket.diameter * s / 2, CONFIG.rocket.stage2Len * s, CONFIG.rocket.diameter * s);
+  ctx.beginPath();
+  ctx.moveTo(CONFIG.rocket.stage2Len * s / 2, -CONFIG.rocket.diameter * s / 2);
+  ctx.lineTo(CONFIG.rocket.stage2Len * s / 2 + 5 * s, 0);
+  ctx.lineTo(CONFIG.rocket.stage2Len * s / 2, CONFIG.rocket.diameter * s / 2);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawRocket() {
+  const R = game.rocket;
+  const s = game.cam.scale;
+  const sc = stageCfg();
+  const P = CONFIG.palette;
+  const x = w2sX(R.x), y = w2sY(R.y);
+  if (game.cam.viewH > 60000) {
+    ctx.fillStyle = '#eaf3fc';
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, TAU); ctx.fill();
+    return;
+  }
+  const ang = -R.theta;
+  const L = sc.length * s, d = CONFIG.rocket.diameter * s;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(ang);
+  ctx.fillStyle = P.hull;
+  ctx.strokeStyle = P.dark;
+  ctx.lineWidth = Math.max(1, d * 0.06);
+  roundRect(-L / 2, -d / 2, L, d, d * 0.4);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(L / 2 - d * 0.4, -d / 2);
+  ctx.quadraticCurveTo(L / 2 + d * 0.75, 0, L / 2 - d * 0.4, d / 2);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = P.dark;
+  ctx.fillRect(-L / 2 + 1.5 * s, -d / 2, 3 * s, d);
+  if (!game.separated) {
+    const s2l = CONFIG.rocket.stage2Len * s;
+    ctx.fillStyle = P.hull;
+    roundRect(L / 2, -d / 2, s2l, d, d * 0.2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = P.dark;
+    ctx.fillRect(L / 2 + s2l - 2.5 * s, -d / 2, 2.5 * s, d);
+    ctx.beginPath();
+    ctx.moveTo(L / 2 + s2l, -d / 2);
+    ctx.lineTo(L / 2 + s2l + 5 * s, 0);
+    ctx.lineTo(L / 2 + s2l, d / 2);
+    ctx.closePath();
+    ctx.fillStyle = P.hullShade; ctx.fill(); ctx.stroke();
+  }
+  const gim = game.lastGimbal || 0;
+  const engN = 3;
+  for (let i = 0; i < engN; i++) {
+    const ey = (i - 1) * d * 0.42;
+    ctx.save();
+    ctx.translate(-L / 2 + 1.2 * s, ey);
+    ctx.rotate(gim);
+    ctx.fillStyle = P.dark;
+    ctx.beginPath();
+    ctx.moveTo(-1.2 * s, -d * 0.15);
+    ctx.lineTo(-3.4 * s, -d * 0.23);
+    ctx.lineTo(-3.4 * s, d * 0.23);
+    ctx.lineTo(-1.2 * s, d * 0.15);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  if (game.fins) {
+    const fx = L / 2 - 7 * s;
+    const fh = 7 * s, fw = 4.5 * s;
+    ctx.fillStyle = P.fin;
+    ctx.strokeStyle = P.hull;
+    ctx.lineWidth = Math.max(0.7, 0.8 * s);
+    for (const side of [-1, 1]) {
+      const y0 = side * d / 2 + (side < 0 ? -fh : 0);
+      ctx.fillRect(fx, y0, fw, fh);
+      ctx.strokeRect(fx, y0, fw, fh);
+      ctx.beginPath();
+      ctx.moveTo(fx + fw / 3, y0); ctx.lineTo(fx + fw / 3, y0 + fh);
+      ctx.moveTo(fx + 2 * fw / 3, y0); ctx.lineTo(fx + 2 * fw / 3, y0 + fh);
+      ctx.stroke();
+    }
+  }
+  if (game.legs) {
+    ctx.strokeStyle = P.dark;
+    ctx.lineWidth = Math.max(1.5, 1.6 * s);
+    const lx = -L / 2 + 3 * s;
+    ctx.beginPath();
+    ctx.moveTo(lx, -d / 2);
+    ctx.lineTo(lx - 7 * s, -d / 2 - 6 * s);
+    ctx.moveTo(lx, d / 2);
+    ctx.lineTo(lx - 7 * s, d / 2 + 6 * s);
+    ctx.stroke();
+  }
+  if (game.lastThrust > 0 && game.phase === 'fly') {
+    const frac = game.lastThrust / sc.thrustMax;
+    const flick = 1 + 0.18 * Math.sin(game.time * 43) + 0.12 * Math.sin(game.time * 91 + 1.7) + (Math.random() - 0.5) * 0.12;
+    const fl = (7 + 9 * frac) * s * flick;
+    const fw2 = d * (0.75 + 0.3 * frac);
+    ctx.save();
+    ctx.translate(-L / 2 - 3 * s, 0);
+    ctx.rotate(gim);
+    const grad = ctx.createLinearGradient(0, 0, -fl, 0);
+    grad.addColorStop(0, P.flameCore);
+    grad.addColorStop(0.35, P.flame);
+    grad.addColorStop(1, 'rgba(255,110,40,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(0, -fw2 / 2);
+    ctx.lineTo(-fl, 0);
+    ctx.lineTo(0, fw2 / 2);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawParticles() {
+  const s = game.cam.scale;
+  for (const p of game.particles) {
+    const x = w2sX(p.x), y = w2sY(p.y);
+    if (x < -60 || x > W + 60 || y < -60 || y > H + 60) continue;
+    const t = p.age / p.life;
+    if (p.kind === 'flame') {
+      ctx.fillStyle = 'rgba(255,' + Math.round(140 + 100 * (1 - t)) + ',60,' + (0.85 * (1 - t)).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(x, y, Math.max(0.6, p.size * s * (1 - t * 0.5)), 0, TAU); ctx.fill();
+    } else if (p.kind === 'smoke' || p.kind === 'fire') {
+      const col = p.kind === 'fire' ? '255,' + Math.round(120 * (1 - t)) + ',40' : '150,160,175';
+      ctx.fillStyle = 'rgba(' + col + ',' + (0.4 * (1 - t)).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(x, y, Math.max(0.6, p.size * s), 0, TAU); ctx.fill();
+    } else if (p.kind === 'ring') {
+      ctx.strokeStyle = 'rgba(255,200,120,' + (0.8 * (1 - t)).toFixed(3) + ')';
+      ctx.lineWidth = 3 * (1 - t) + 1;
+      ctx.beginPath(); ctx.arc(x, y, p.size * s, 0, TAU); ctx.stroke();
+    }
+  }
+}
+
+function drawHUD() {
+  const R = game.rocket;
+  if (!R) return;
+  const P = CONFIG.palette;
+  const r = Math.hypot(R.x, R.y);
+  const alt = Math.max(0, altAt(R.x, R.y));
+  const speed = Math.hypot(R.vx, R.vy);
+  const rhatx = R.x / r, rhaty = R.y / r;
+  const vr = R.vx * rhatx + R.vy * rhaty;
+  const tang = -R.vx * rhaty + R.vy * rhatx;
+  const upAng = Math.atan2(R.y, R.x);
+  const tilt = angDist(R.theta, upAng) / DEG;
+  const sc = stageCfg();
+  const m = sc.dry + sc.extraMass + R.fuel;
+  const g = GM / (r * r);
+  const twr = game.lastThrust / (m * g);
+  const fuelFrac = R.fuel / sc.fuelMax;
+  const thrFrac = game.lastThrust / sc.thrustMax;
+  ctx.textAlign = 'left';
+  ctx.font = '12px ui-monospace, monospace';
+  const pad = 12;
+  const top = 12 + (isMobile() ? 52 : 0);
+  ctx.fillStyle = 'rgba(4,10,20,0.35)';
+  ctx.fillRect(pad - 6, top - 12, 218, 148);
+  ctx.fillStyle = P.hud;
+  const lines = [
+    ['ALT', alt.toFixed(0) + ' m'],
+    ['VEL', speed.toFixed(1) + ' m/s'],
+    ['V/S', (vr >= 0 ? '+' : '') + vr.toFixed(1) + ' m/s'],
+    ['HOR', (tang >= 0 ? '+' : '') + tang.toFixed(1) + ' m/s'],
+    ['TILT', tilt.toFixed(1) + '°'],
+    ['TWR', twr.toFixed(2)],
+    ['THR', Math.round(thrFrac * 100) + ' %'],
+  ];
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillStyle = P.hudDim;
+    ctx.fillText(lines[i][0], pad, top + i * 17);
+    ctx.fillStyle = P.hud;
+    ctx.textAlign = 'right';
+    ctx.fillText(lines[i][1], pad + 208, top + i * 17);
+    ctx.textAlign = 'left';
+  }
+  const barX = pad, barY = top + lines.length * 17 + 4, barW = 208, barH = 10;
+  ctx.fillStyle = 'rgba(20,35,60,0.7)';
+  ctx.fillRect(barX, barY, barW, barH);
+  let fuelCol = P.hud;
+  if (fuelFrac < 0.15) {
+    game.lowFuelPulse += 0.08;
+    fuelCol = (Math.sin(game.lowFuelPulse) > 0) ? P.warn : '#ff5040';
+  }
+  ctx.fillStyle = fuelCol;
+  ctx.fillRect(barX, barY, barW * clamp(fuelFrac, 0, 1), barH);
+  ctx.strokeStyle = 'rgba(140,180,220,0.5)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX + 0.5, barY + 0.5, barW, barH);
+  ctx.fillStyle = P.hudDim;
+  ctx.fillText('PALIVO ' + Math.round(fuelFrac * 100) + ' %', barX, barY + barH + 13);
+  const t = game.target;
+  if (t) {
+    const dAng = normAng(upAng - t.angle);
+    const dist = Math.abs(dAng) * CONFIG.planet.R;
+    const arrow = dAng > 0.0005 ? '◀' : dAng < -0.0005 ? '▶' : '◎';
+    ctx.fillStyle = P.hud;
+    ctx.fillText('CÍL ' + dist.toFixed(0) + ' m ' + arrow, pad, barY + barH + 32);
+  }
+  const stY = top;
+  const stX = W - pad;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = game.fins ? P.good : P.hudDim;
+  ctx.fillText('KLAPKY ' + (game.fins ? 'ON' : 'OFF'), stX, stY);
+  ctx.fillStyle = game.legs ? P.good : P.hudDim;
+  ctx.fillText('NOŽKY ' + (game.legs ? 'ON' : 'OFF'), stX, stY + 17);
+  ctx.fillStyle = game.separated ? P.warn : P.hudDim;
+  ctx.fillText(game.separated ? 'BOOSTER' : 'STACK', stX, stY + 34);
+  if (R.engineLocked) {
+    ctx.fillStyle = '#ff5040';
+    ctx.fillText('PALIVO DOŠLO — MOTOR MRTVÝ', stX, stY + 51);
+  } else if (fuelFrac < 0.15) {
+    ctx.fillStyle = (Math.sin(game.lowFuelPulse) > 0) ? P.warn : '#ff5040';
+    ctx.fillText('NÍZKÉ PALIVO', stX, stY + 51);
+  }
+  if (game.scenarioId === 'hover') {
+    ctx.fillStyle = P.hud;
+    ctx.fillText('HOVER ' + game.hoverHold.toFixed(0) + ' / ' + (game.scenario.holdTime || 30) + ' s', stX, stY + 68);
+  }
+  if (game.phase === 'touchdown') {
+    ctx.fillStyle = P.good;
+    ctx.font = '700 20px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DOSEDNUTO — vypni motor (X)', W / 2, H * 0.3);
+    ctx.font = '12px ui-monospace, monospace';
+  }
+  if (game.mode === 'play' && !isMobile()) {
+    ctx.fillStyle = 'rgba(110,150,190,0.6)';
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('W/S tah · A/D rotace · X cutoff · Z max · G klapky · L nožky · MEZERNÍK oddělit · M mapa · P pauza · R restart', W / 2, H - 10);
+  }
+}
+
+function hideOverlays() {
+  document.getElementById('menu').classList.add('hidden');
+  document.getElementById('result').classList.add('hidden');
+}
+
+function showResult() {
+  const r = game.result;
+  if (!r) return;
+  const el = document.getElementById('result');
+  el.classList.remove('hidden');
+  const g = document.getElementById('resGrade');
+  g.textContent = r.grade;
+  g.style.color = r.ok ? '#ffd76e' : r.partial ? '#9fc3e2' : '#ff6a55';
+  document.getElementById('resTitle').textContent = r.ok ? 'ÚSPĚCH — PŘISTÁNÍ' : r.partial ? 'ČÁSTEČNÝ ÚSPĚCH' : 'HAVÁRIE';
+  const rows = [
+    ['Výsledek', r.ok ? 'na cíli' : r.partial ? 'mimo cíl' : r.reason],
+    ['Svislá rychlost', Math.abs(r.vr).toFixed(1) + ' m/s (max ' + CONFIG.landingEval.maxVertSpeed + ')'],
+    ['Náklon', r.tilt.toFixed(1) + '° (max ' + CONFIG.landingEval.maxTiltDeg + '°)'],
+    ['Odchylka od středu', r.dist.toFixed(1) + ' m'],
+    ['Zbývající palivo', Math.round(r.fuelFrac * 100) + ' %'],
+    ['Čas letu', r.time.toFixed(1) + ' s'],
+  ];
+  if (game.scenarioId === 'hover') rows.push(['Hover čas', r.hoverHold.toFixed(0) + ' s']);
+  const best = game.best[game.scenarioId];
+  if (best) rows.push(['Nejlepší', best.grade + (best.ok ? ' ✓' : '')]);
+  document.getElementById('resRows').innerHTML = rows.map(row => row[0] + ' <b>' + row[1] + '</b>').join('<br>');
+}
+
+function refreshMenuBest() {
+  for (const id of ['mission', 'landing', 'hover']) {
+    const el = document.getElementById('best-' + id);
+    if (el && game.best[id]) el.textContent = '★ ' + game.best[id].grade;
+    else if (el) el.textContent = '';
+  }
+}
+
+function syncTouchUI() {
+  const t = document.getElementById('touch');
+  if (isMobile() && game.mode === 'play') t.classList.remove('hidden');
+  else t.classList.add('hidden');
+  document.getElementById('tbFins').classList.toggle('on', game.fins);
+  document.getElementById('tbLegs').classList.toggle('on', game.legs);
+  document.getElementById('tbMap').classList.toggle('on', game.mapMode);
+  document.getElementById('tbSep').classList.toggle('warn', !game.separated);
+  const wrap = document.getElementById('thrWrap');
+  const fill = document.getElementById('thrFill');
+  const knob = document.getElementById('thrKnob');
+  const h = wrap.clientHeight || 200;
+  const f = clamp(input.throttle, 0, 1);
+  fill.style.height = (f * 100) + '%';
+  knob.style.bottom = (f * 100) + '%';
+  document.getElementById('cutBtn').classList.toggle('on', input.throttle <= 0.001 && game.phase === 'fly');
+}
+
+function bindInput() {
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+    unlockAudio();
+    if (game.mode !== 'play') {
+      if (k === 'r' && game.scenarioId) startScenario(game.scenarioId);
+      return;
+    }
+    input.keys[k] = true;
+    if (k === 'x') { input.throttle = 0; if (game.phase === 'touchdown' && game.touchdown) game.touchdown.cutInTime = true; playClick(); syncTouchUI(); }
+    if (k === 'z') { input.throttle = 1; syncTouchUI(); }
+    if (k === 'g') { game.fins = !game.fins; playClick(); toast('Klapky ' + (game.fins ? 'vyklopeny' : 'sklopeny')); syncTouchUI(); }
+    if (k === 'l') { game.legs = !game.legs; playClick(); toast('Nožičky ' + (game.legs ? 'vyklopeny' : 'sklopeny')); syncTouchUI(); }
+    if (k === ' ') trySeparate();
+    if (k === 'm') { game.mapMode = !game.mapMode; playClick(); syncTouchUI(); }
+    if (k === 'p') { game.paused = !game.paused; syncTouchUI(); }
+    if (k === 'r') startScenario(game.scenarioId);
+  });
+  window.addEventListener('keyup', (e) => { input.keys[e.key.toLowerCase()] = false; });
+
+  const el = id => document.getElementById(id);
+  document.querySelectorAll('.scBtn').forEach(b => {
+    b.addEventListener('click', () => { unlockAudio(); playClick(); startScenario(b.dataset.sc); });
+  });
+  el('btnRetry').addEventListener('click', () => { playClick(); startScenario(game.scenarioId); });
+  el('btnMenu').addEventListener('click', () => {
+    playClick();
+    game.mode = 'menu';
+    el('result').classList.add('hidden');
+    el('menu').classList.remove('hidden');
+    refreshMenuBest();
+    syncTouchUI();
+  });
+
+  const wrap = el('thrWrap');
+  const setThr = (clientY) => {
+    const r = wrap.getBoundingClientRect();
+    input.throttle = clamp(1 - (clientY - r.top) / r.height, 0, 1);
+    syncTouchUI();
+  };
+  wrap.addEventListener('pointerdown', (e) => { unlockAudio(); touch.thrActive = true; wrap.setPointerCapture(e.pointerId); setThr(e.clientY); });
+  wrap.addEventListener('pointermove', (e) => { if (touch.thrActive) setThr(e.clientY); });
+  wrap.addEventListener('pointerup', () => { touch.thrActive = false; });
+  wrap.addEventListener('pointercancel', () => { touch.thrActive = false; });
+
+  el('cutBtn').addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    input.throttle = 0;
+    if (game.phase === 'touchdown' && game.touchdown) game.touchdown.cutInTime = true;
+    playClick(); syncTouchUI();
+  });
+
+  const bindHold = (id, prop) => {
+    const b = el(id);
+    const on = (e) => { e.preventDefault(); unlockAudio(); touch[prop] = true; b.classList.add('on'); };
+    const off = (e) => { e.preventDefault(); touch[prop] = false; b.classList.remove('on'); };
+    b.addEventListener('pointerdown', on);
+    b.addEventListener('pointerup', off);
+    b.addEventListener('pointercancel', off);
+    b.addEventListener('pointerleave', off);
+  };
+  bindHold('rotL', 'rotL');
+  bindHold('rotR', 'rotR');
+
+  el('tbFins').addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); game.fins = !game.fins; playClick(); syncTouchUI(); });
+  el('tbLegs').addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); game.legs = !game.legs; playClick(); syncTouchUI(); });
+  el('tbSep').addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); trySeparate(); syncTouchUI(); });
+  el('tbMap').addEventListener('pointerdown', (e) => { e.preventDefault(); game.mapMode = !game.mapMode; playClick(); syncTouchUI(); });
+  el('tbPause').addEventListener('pointerdown', (e) => { e.preventDefault(); game.paused = !game.paused; syncTouchUI(); });
+
+  const pointers = new Map();
+  cv.addEventListener('pointerdown', (e) => {
+    unlockAudio();
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const p = [...pointers.values()];
+      touch.pinchD = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+    }
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2 && touch.pinchD > 0) {
+      const p = [...pointers.values()];
+      const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      game.manualZoom = clamp(game.manualZoom * d / touch.pinchD, 0.25, 8);
+      touch.pinchD = d;
+    }
+  });
+  const pEnd = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) touch.pinchD = 0;
+    if (pointers.size === 0) game.manualZoom = 1;
+  };
+  cv.addEventListener('pointerup', pEnd);
+  cv.addEventListener('pointercancel', pEnd);
+  cv.addEventListener('dblclick', () => { game.manualZoom = 1; });
+
+  window.addEventListener('pointerdown', unlockAudio, { once: true });
+  window.addEventListener('resize', resize);
+}
+
+let last = 0, acc = 0;
+
+function loop(t) {
+  requestAnimationFrame(loop);
+  if (!last) last = t;
+  let frameDt = Math.min((t - last) / 1000, 0.1);
+  last = t;
+  if (game.mode === 'play' && !game.paused) {
+    if (input.keys['w'] || input.keys['arrowup']) input.throttle = clamp(input.throttle + frameDt * 1.2, 0, 1);
+    if (input.keys['s'] || input.keys['arrowdown']) input.throttle = clamp(input.throttle - frameDt * 1.2, 0, 1);
+    acc += frameDt * game.timeScale;
+    const dt = CONFIG.physics.dt;
+    let n = 0;
+    while (acc >= dt && n < CONFIG.physics.maxSubSteps) {
+      stepPhysics(dt);
+      acc -= dt;
+      n++;
+      if (game.mode !== 'play') { acc = 0; break; }
+    }
+    if (n >= CONFIG.physics.maxSubSteps) acc = 0;
+    updateCamera(frameDt, false);
+    updateAudio(game.lastThrust / stageCfg().thrustMax);
+    syncTouchUIThr();
+  } else {
+    updateAudio(0);
+  }
+  updateParticles(frameDt);
+  render();
+}
+
+let thrSyncT = 0;
+function syncTouchUIThr() {
+  thrSyncT += 1;
+  if (thrSyncT % 6 !== 0) return;
+  syncTouchUI();
+}
+
+function init() {
+  cv = document.getElementById('cv');
+  ctx = cv.getContext('2d');
+  resize();
+  makeStars();
+  game.best = loadBest();
+  refreshMenuBest();
+  bindInput();
+  syncTouchUI();
+  requestAnimationFrame(loop);
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+}
+</script>
+</body>
+</html>
